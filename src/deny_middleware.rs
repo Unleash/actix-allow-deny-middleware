@@ -25,8 +25,8 @@ use ipnet::IpNet;
 /// async fn main() -> std::io::Result<()> {
 ///     HttpServer::new(move || {
 ///         App::new()
-///             // adds allow listing, allowing all ip addresses and ranges for both IPv4 and IPv6.
-///             .wrap(DenyList::with_denied_ranges(vec!["127.0.0.1/32", "192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12"]))
+///             // adds deny listing, Blocking all of 66.249.0.0 to 66.249.255.255
+///             .wrap(DenyList::with_denied_range("66.249.0.0/16"))
 ///             .service(web::resource("/").to(|| async { HttpResponse::Ok().body("Hello, world!") }))
 ///     })
 ///     .bind(("127.0.0.1", 8080))?
@@ -44,7 +44,7 @@ use ipnet::IpNet;
 /// async fn main() -> std::io::Result<()> {
 ///     HttpServer::new(move || {
 ///         App::new()
-///             // adds allow listing, allowing typical local network addresses.
+///             // adds deny listing, denying typical local network addresses. Not sure why you would do this. but at least it's an example.
 ///             .wrap(DenyList::with_denied_ranges(vec!["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12"]))
 ///             .service(web::resource("/").to(|| async { HttpResponse::Ok().body("Hello, world!") }))
 ///     })
