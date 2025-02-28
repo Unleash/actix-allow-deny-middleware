@@ -156,8 +156,13 @@ where
 
     fn call(&self, req: ServiceRequest) -> Self::Future {
         if let Some(actual_ip) = req.connection_info().realip_remote_addr() {
-            println!("Actual IP: {}", actual_ip);
-            if !self.allow_list.allows(actual_ip) {
+            let comparison = if actual_ip.contains("::") {
+                println!("IPv6 address detected");
+                format!("{}/128", actual_ip)
+            } else {
+                format!("{}/32", actual_ip)
+            };
+            if !self.allow_list.allows(&comparison) {
                 return Box::pin(async move {
                     Err(actix_web::error::ErrorForbidden(
                         "Could not find IP of client in allow list",
@@ -183,6 +188,11 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        net::{IpAddr, Ipv4Addr},
+        str::FromStr,
+    };
+
     use actix_service::Service;
     use actix_web::{
         App, HttpResponse, Responder,
@@ -190,6 +200,7 @@ mod tests {
         test::{TestRequest, init_service},
         web,
     };
+    use ipnet::IpNet;
 
     use crate::allow_middleware::AllowList;
 
@@ -199,19 +210,36 @@ mod tests {
 
     #[actix_web::test]
     async fn allows_localhost() {
-        let allow_list = AllowList::with_allowed_ip("127.0.0.1");
+        let localhost = std::net::SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 80);
+        let allow_list = AllowList::with_allowed_ips(vec!["127.0.0.1/32", "::1"]);
         let app = init_service(App::new().wrap(allow_list).route("/", web::get().to(index))).await;
-        let req = TestRequest::default().to_request();
-        let resp = app.call(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::OK);
+        let req = TestRequest::default()
+            .uri("/")
+            .peer_addr(localhost)
+            .to_request();
+        let resp = app.call(req).await;
+        assert!(resp.is_ok());
     }
 
     #[actix_web::test]
     async fn blocks_all_ips_with_empty_list() {
+        let local = std::net::SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 80);
         let allow_list = AllowList::with_allowed_ips(vec![]);
         let app = init_service(App::new().wrap(allow_list).route("/", web::get().to(index))).await;
-        let req = TestRequest::default().to_request();
-        let resp = app.call(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        let req = TestRequest::default()
+            .uri("/")
+            .peer_addr(local)
+            .to_request();
+        let resp = app.call(req).await;
+        assert!(resp.is_err());
+    }
+
+    #[test]
+    fn ipnet_understanding() {
+        let ipnet = IpNet::from_str("127.0.0.1/32").unwrap();
+        let other = IpNet::from_str("127.0.0.1").unwrap();
+        assert!(ipnet.contains(&other));
+        assert!(ipnet.contains(&IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))));
+        assert!(!ipnet.contains(&IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2))));
     }
 }
