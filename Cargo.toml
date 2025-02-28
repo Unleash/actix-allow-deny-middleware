@@ -11,3 +11,5 @@ license = "MIT"
 actix-service = { version = "2.0.2" }
 actix-web = { version = "4.9.0", default-features = false }
 futures = { version = "0.3.31" }
+ipnet = "2.11.0"
+tracing = "0.1.41"
