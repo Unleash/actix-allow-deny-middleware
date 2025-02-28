@@ -10,9 +10,8 @@ use std::{
 
 use actix_service::{Service, Transform, forward_ready};
 use actix_web::{
-    Error, HttpResponseBuilder,
+    Error,
     dev::{ServiceRequest, ServiceResponse},
-    http::StatusCode,
 };
 use ipnet::IpNet;
 
@@ -80,6 +79,6 @@ where
             }
         }
         let fut = self.service.call(req);
-        Box::pin(async move { fut.await })
+        Box::pin(fut)
     }
 }
