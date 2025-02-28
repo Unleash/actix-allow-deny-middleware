@@ -3,7 +3,7 @@
 version = 4
 
 [[package]]
-name = "actix-allow-disallow-middleware"
+name = "actix-allow-deny-middleware"
 version = "0.1.0"
 dependencies = [
  "actix-service",

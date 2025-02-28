@@ -1,4 +1,4 @@
-# actix-allow-disallow-middleware
+# actix-allow-deny-middleware
 
 ## Actix middlewares
 

@@ -1,7 +1,3 @@
-//! # Actix Allow Middleware
-//!
-//! This middleware allows requests from specific IP addresses or ranges.
-
 use std::{
     future::{Ready, ready},
     net::IpAddr,
@@ -17,12 +13,12 @@ use actix_web::{
 use ipnet::IpNet;
 
 /// This should be loaded as the first middleware, as in, last in the sequence of wrap()
-/// Actix loads middlewares in bottom up fashion, and if the request's IP address is not in the allow list, it will be denied, and there is no point in continuing to process the request.
+/// Actix loads middlewares in bottom up fashion, and if the request's IP address is in the deny list, it will be denied, and there is no point in continuing to process the request.
 
 /// # Examples
 /// ```no_run
 /// use actix_web::{web, App, HttpServer, HttpResponse, Error};
-/// use actix_allow_deny_middleware::AllowList;
+/// use actix_allow_deny_middleware::DenyList;
 ///
 ///
 /// #[actix_web::main]
@@ -30,7 +26,7 @@ use ipnet::IpNet;
 ///     HttpServer::new(move || {
 ///         App::new()
 ///             // adds allow listing, allowing all ip addresses and ranges for both IPv4 and IPv6.
-///             .wrap(AllowList::default())
+///             .wrap(DenyList::with_denied_ranges(vec!["127.0.0.1/32", "192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12"]))
 ///             .service(web::resource("/").to(|| async { HttpResponse::Ok().body("Hello, world!") }))
 ///     })
 ///     .bind(("127.0.0.1", 8080))?
@@ -41,7 +37,7 @@ use ipnet::IpNet;
 ///
 /// ```no_run
 /// use actix_web::{web, App, HttpServer, HttpResponse, Error};
-/// use actix_allow_deny_middleware::AllowList;
+/// use actix_allow_deny_middleware::DenyList;
 ///
 ///
 /// #[actix_web::main]
@@ -49,7 +45,7 @@ use ipnet::IpNet;
 ///     HttpServer::new(move || {
 ///         App::new()
 ///             // adds allow listing, allowing typical local network addresses.
-///             .wrap(AllowList::with_allowed_ips(vec!["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12"]))
+///             .wrap(DenyList::with_denied_ranges(vec!["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12"]))
 ///             .service(web::resource("/").to(|| async { HttpResponse::Ok().body("Hello, world!") }))
 ///     })
 ///     .bind(("127.0.0.1", 8080))?
@@ -58,74 +54,62 @@ use ipnet::IpNet;
 /// }
 /// ```
 ///
+/// This struct represents a list of allowed IP addresses or ranges. Both IPv4 and IPv6 are supported.
 #[derive(Debug, Clone)]
-pub struct AllowList {
-    allow_list: Vec<IpNet>,
+pub struct DenyList {
+    deny_list: Vec<IpNet>,
 }
 
-impl Default for AllowList {
-    /// A default list that allows all IP addresses and ranges for both IPv4 and IPv6.
-    fn default() -> Self {
-        AllowList {
-            allow_list: vec![
-                IpNet::from_str("0.0.0.0/0").unwrap(),
-                IpNet::from_str("::/0").unwrap(),
-            ],
-        }
-    }
-}
-
-impl AllowList {
-    /// Takes an ip address and returns whether or not it is in any of the allowed ranges
-    pub fn allows(&self, ip: &str) -> bool {
-        !self.allow_list.is_empty()
-            && ip
+impl DenyList {
+    /// Takes an IP and checks if it is in any of the denied ranges
+    pub fn denies(&self, ip: &str) -> bool {
+        self.deny_list.is_empty()
+            || ip
                 .parse::<IpAddr>()
-                .map(|ip| self.allow_list.iter().any(|allowed| allowed.contains(&ip)))
-                .unwrap_or(false)
+                .map(|ip| self.deny_list.iter().any(|denied| denied.contains(&ip)))
+                .unwrap_or(true)
     }
-
-    /// Adds an IP address or range to the allow list. Invalid IP addresses or ranges are ignored.
-    pub fn add_ip_range(&mut self, ip: &str) {
-        if let Ok(ipnet) = IpNet::from_str(ip) {
-            self.allow_list.push(ipnet);
+    /// Adds an IP address or range to the disallow list. Invalid IP addresses or ranges are ignored. If you want to add a single ip address, use `A.B.C.D/32`
+    pub fn add_ip_range(&mut self, range: &str) {
+        if let Ok(ipnet) = IpNet::from_str(range) {
+            self.deny_list.push(ipnet);
         }
     }
 
-    /// Adds a list of IP addresses or ranges to the allow list. Invalid IP addresses or ranges are ignored.
-    pub fn add_ip_ranges(&mut self, ips: Vec<&str>) {
-        for ip in ips {
+    /// Adds a list of IP addresses or ranges to the disallow list. Invalid IP ranges are ignored.
+    pub fn add_ip_ranges(&mut self, ranges: Vec<&str>) {
+        for ip in ranges {
             if let Ok(ip_net) = IpNet::from_str(ip) {
-                self.allow_list.push(ip_net);
+                self.deny_list.push(ip_net);
             }
         }
     }
 
-    /// Constructs an allow list with a single IP range. Invalid IP addresses or ranges are ignored.
-    pub fn with_allowed_range(ip: &str) -> Self {
-        let mut allow_list = vec![];
-        if let Ok(ip_net) = IpNet::from_str(ip) {
-            allow_list.push(ip_net);
+    /// Builds a disallow list from a single IP range. Invalid IP ranges are ignored.
+    pub fn with_denied_range(ranges: &str) -> Self {
+        let mut deny_list = vec![];
+        if let Ok(ip_net) = IpNet::from_str(ranges) {
+            deny_list.push(ip_net);
         }
-        Self { allow_list }
+        Self { deny_list }
     }
 
-    /// Builds an allow list from a list of IP ranges. Invalid IP ranges are ignored.
-    pub fn with_allowed_ips(ips: Vec<&str>) -> Self {
-        let allow_list = ips
+    /// Builds a disallow list from a list of IP ranges. Invalid IP ranges are ignored.
+    pub fn with_denied_ranges(ranges: Vec<&str>) -> Self {
+        let deny_list = ranges
             .iter()
             .filter_map(|ip| IpNet::from_str(ip).ok())
             .collect();
-        Self { allow_list }
+        Self { deny_list }
     }
 }
 
-pub struct AllowListMiddleware<S> {
+pub struct DenyListMiddleware<S> {
     service: S,
-    allow_list: AllowList,
+    deny_list: DenyList,
 }
 
-impl<S, B> Transform<S, ServiceRequest> for AllowList
+impl<S, B> Transform<S, ServiceRequest> for DenyList
 where
     S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
     S::Future: 'static,
@@ -134,20 +118,20 @@ where
     type Response = ServiceResponse<B>;
     type Error = actix_web::Error;
     type InitError = ();
-    type Transform = AllowListMiddleware<S>;
+    type Transform = DenyListMiddleware<S>;
     type Future = Ready<Result<Self::Transform, Self::InitError>>;
 
     fn new_transform(&self, service: S) -> Self::Future {
-        ready(Ok(AllowListMiddleware {
+        ready(Ok(DenyListMiddleware {
             service,
-            allow_list: self.clone(),
+            deny_list: self.clone(),
         }))
     }
 }
 
 type LocalBoxFuture<T> = Pin<Box<dyn Future<Output = T> + 'static>>;
 
-impl<S, B> Service<ServiceRequest> for AllowListMiddleware<S>
+impl<S, B> Service<ServiceRequest> for DenyListMiddleware<S>
 where
     S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
     S::Future: 'static,
@@ -161,26 +145,25 @@ where
 
     fn call(&self, req: ServiceRequest) -> Self::Future {
         if let Some(actual_ip) = req.connection_info().realip_remote_addr() {
-            if !self.allow_list.allows(&actual_ip) {
+            if self.deny_list.denies(actual_ip) {
                 return Box::pin(async move {
                     Err(actix_web::error::ErrorForbidden(
-                        "Could not find IP of client in allow list",
+                        "IP address was found in the disallow list",
                     ))
                 });
             }
-        } else if let Some(peer_addr) = req.peer_addr() {
-            println!("Peer IP: {}", peer_addr.ip());
-            if !self.allow_list.allows(&peer_addr.ip().to_string()) {
+        } else if let Some(peer_ip) = req.peer_addr() {
+            if self.deny_list.denies(&peer_ip.ip().to_string()) {
                 return Box::pin(async move {
                     Err(actix_web::error::ErrorForbidden(
-                        "Could not find IP of client in allow list",
+                        "IP address was found in the disallow list",
                     ))
                 });
             }
         } else {
             return Box::pin(async move {
                 Err(actix_web::error::ErrorForbidden(
-                    "You have activated the allow list middleware, but no IP could be found in connection_info or peer_addr",
+                    "You have activated the deny list middleware, but no IP could be found in connection_info or peer_addr",
                 ))
             });
         }
@@ -191,7 +174,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::net::{IpAddr, Ipv4Addr};
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
     use actix_service::Service;
     use actix_web::{
@@ -200,29 +183,44 @@ mod tests {
         web,
     };
 
-    use crate::allow_middleware::AllowList;
+    use crate::deny_middleware::DenyList;
 
     async fn index() -> impl Responder {
         HttpResponse::Ok().body("abcd")
     }
 
     #[actix_web::test]
-    async fn allows_localhost() {
+    async fn denies_localhost() {
         let localhost = std::net::SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 80);
-        let allow_list = AllowList::with_allowed_ips(vec!["127.0.0.1/32", "::1"]);
-        let app = init_service(App::new().wrap(allow_list).route("/", web::get().to(index))).await;
+        let localhost6 =
+            std::net::SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)), 80);
+        let lan_ip = std::net::SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 0, 1)), 80);
+        let deny_list = DenyList::with_denied_ranges(vec!["127.0.0.1/32", "::1/128"]);
+        let app = init_service(App::new().wrap(deny_list).route("/", web::get().to(index))).await;
         let req = TestRequest::default()
             .uri("/")
             .peer_addr(localhost)
             .to_request();
         let resp = app.call(req).await;
+        assert!(resp.is_err());
+        let ipv6_req = TestRequest::default()
+            .uri("/")
+            .peer_addr(localhost6)
+            .to_request();
+        let resp = app.call(ipv6_req).await;
+        assert!(resp.is_err());
+        let lan_req = TestRequest::default()
+            .uri("/")
+            .peer_addr(lan_ip)
+            .to_request();
+        let resp = app.call(lan_req).await;
         assert!(resp.is_ok());
     }
 
     #[actix_web::test]
     async fn errors_if_no_ip_can_be_found_from_the_request() {
-        let allow_list = AllowList::with_allowed_ips(vec!["127.0.0.1/32", "::1"]);
-        let app = init_service(App::new().wrap(allow_list).route("/", web::get().to(index))).await;
+        let deny_list = DenyList::with_denied_ranges(vec!["127.0.0.1/32", "::1"]);
+        let app = init_service(App::new().wrap(deny_list).route("/", web::get().to(index))).await;
         let req = TestRequest::default().uri("/").to_request();
         let resp = app.call(req).await;
         assert!(resp.is_err());
@@ -231,8 +229,8 @@ mod tests {
     #[actix_web::test]
     async fn blocks_all_ips_with_empty_list() {
         let local = std::net::SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 80);
-        let allow_list = AllowList::with_allowed_ips(vec![]);
-        let app = init_service(App::new().wrap(allow_list).route("/", web::get().to(index))).await;
+        let deny_list = DenyList::with_denied_ranges(vec![]);
+        let app = init_service(App::new().wrap(deny_list).route("/", web::get().to(index))).await;
         let req = TestRequest::default()
             .uri("/")
             .peer_addr(local)
@@ -242,25 +240,25 @@ mod tests {
     }
 
     #[actix_web::test]
-    async fn allows_ranges() {
-        let requesting_ip =
+    async fn denies_ranges() {
+        let ip_in_deny_range =
             std::net::SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 50, 133)), 80);
-        let disallowed_ip =
+        let ip_outside_deny_range =
             std::net::SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 49, 134)), 80);
-        let allow_list = AllowList::with_allowed_ips(vec!["192.168.50.0/24"]);
-        let app = init_service(App::new().wrap(allow_list).route("/", web::get().to(index))).await;
+        let deny_list = DenyList::with_denied_range("192.168.50.0/24");
+        let app = init_service(App::new().wrap(deny_list).route("/", web::get().to(index))).await;
         let req = TestRequest::default()
             .uri("/")
-            .peer_addr(requesting_ip)
-            .to_request();
-        let resp = app.call(req).await;
-        assert!(resp.is_ok());
-
-        let req = TestRequest::default()
-            .uri("/")
-            .peer_addr(disallowed_ip)
+            .peer_addr(ip_in_deny_range)
             .to_request();
         let resp = app.call(req).await;
         assert!(resp.is_err());
+
+        let req = TestRequest::default()
+            .uri("/")
+            .peer_addr(ip_outside_deny_range)
+            .to_request();
+        let resp = app.call(req).await;
+        assert!(resp.is_ok());
     }
 }

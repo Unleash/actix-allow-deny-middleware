@@ -8,4 +8,7 @@
 //!
 
 mod allow_middleware;
-mod disallow_middleware;
+mod deny_middleware;
+
+pub use allow_middleware::AllowList;
+pub use deny_middleware::DenyList;

@@ -1,9 +1,9 @@
 [package]
-name = "actix-allow-disallow-middleware"
+name = "actix-allow-deny-middleware"
 version = "0.1.0"
 edition = "2024"
-repository = "https://github.com/chriswk/actix-allow-disallow-middleware"
-homepage = "https://github.com/chriswk/actix-allow-disallow-middleware"
+repository = "https://github.com/chriswk/actix-allow-deny-middleware"
+homepage = "https://github.com/chriswk/actix-allow-deny-middleware"
 authors = ["Christopher Kolstad <rust@chriswk.no>"]
 license = "MIT"
 
