@@ -1,0 +1,23 @@
+name: CI
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      CI: 1
+      CARGO_INCREMENTAL: 0
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Test
+        timeout-minutes: 10
+        run: cargo test
