@@ -6,7 +6,7 @@ repository = "https://github.com/chriswk/actix-allow-deny-middleware"
 homepage = "https://github.com/chriswk/actix-allow-deny-middleware"
 authors = ["Christopher Kolstad <rust@chriswk.no>"]
 license = "MIT"
-
+description = "Middlewares for denying or allowing IPv4 and IPv6 ranges"
 [dependencies]
 actix-service = { version = "2.0.2" }
 actix-web = { version = "4.9.0", default-features = false }
