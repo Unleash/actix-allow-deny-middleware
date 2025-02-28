@@ -1,0 +1,13 @@
+[package]
+name = "actix-allow-disallow-middleware"
+version = "0.1.0"
+edition = "2024"
+repository = "https://github.com/chriswk/actix-allow-disallow-middleware"
+homepage = "https://github.com/chriswk/actix-allow-disallow-middleware"
+authors = ["Christopher Kolstad <rust@chriswk.no>"]
+license = "MIT"
+
+[dependencies]
+actix-service = { version = "2.0.2" }
+actix-web = { version = "4.9.0", default-features = false }
+futures = { version = "0.3.31" }
