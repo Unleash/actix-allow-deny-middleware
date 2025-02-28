@@ -15,10 +15,63 @@ use actix_web::{
 };
 use ipnet::IpNet;
 
-/// This struct represents a list of allowed IP addresses or ranges. Both IPv4 and IPv6 are supported.
+/// This should be loaded as the first middleware, as in, last in the sequence of wrap()
+/// Actix loads middlewares in bottom up fashion, and if the request's IP address is not in the allow list, it will be denied, and there is no point in continuing to process the request.
+
+/// # Examples
+/// ```no_run
+/// use_actix_web::{web, App, HttpServer, HttpResponse, Error};
+/// use actix_allow_disallow_middleware::AllowList;
+///
+///
+/// #[actix_web::main]
+/// async fn main() -> std::io::Result<()> {
+///     HttpServer::new(move || {
+///         App::new()
+///             // adds allow listing, allowing all ip addresses and ranges for both IPv4 and IPv6.
+///             .wrap(AllowList::default())
+///             .service(web::resource("/").to(|| async { HttpResponse::Ok().body("Hello, world!") }))
+///     })
+///     .bind(("127.0.0.1", 8080))?
+///     .run()
+///     .await
+/// }
+/// ```
+///
+/// ```no_run
+/// use_actix_web::{web, App, HttpServer, HttpResponse, Error};
+/// use actix_allow_disallow_middleware::AllowList;
+///
+///
+/// #[actix_web::main]
+/// async fn main() -> std::io::Result<()> {
+///     HttpServer::new(move || {
+///         App::new()
+///             // adds allow listing, allowing typical local network addresses.
+///             .wrap(AllowList::with_allowed_ips(vec!["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12"]))
+///             .service(web::resource("/").to(|| async { HttpResponse::Ok().body("Hello, world!") }))
+///     })
+///     .bind(("127.0.0.1", 8080))?
+///     .run()
+///     .await
+/// }
+/// ```
+///
 #[derive(Debug, Clone)]
 pub struct AllowList {
     allow_list: Vec<IpNet>,
+}
+
+impl Default for AllowList {
+    /// A default list that allows all IP addresses and ranges for both IPv4 and IPv6.
+    fn default() -> Self {
+        AllowList {
+            allow_list: vec![
+                IpNet::from_str("0.0.0.0/0").unwrap(),
+                IpNet::from_str("::/0").unwrap(),
+            ],
+        }
+    }
 }
 
 impl AllowList {
@@ -26,6 +79,39 @@ impl AllowList {
         IpNet::from_str(ip)
             .map(|ip| self.allow_list.iter().any(|allowed| allowed.contains(&ip)))
             .unwrap_or(false)
+    }
+
+    /// Adds an IP address or range to the allow list. Invalid IP addresses or ranges are ignored.
+    pub fn add_ip_range(&mut self, ip: &str) {
+        if let Ok(ipnet) = IpNet::from_str(ip) {
+            self.allow_list.push(ipnet);
+        }
+    }
+
+    /// Adds a list of IP addresses or ranges to the allow list. Invalid IP addresses or ranges are ignored.
+    pub fn add_ip_ranges(&mut self, ips: Vec<&str>) {
+        for ip in ips {
+            if let Ok(ip_net) = IpNet::from_str(ip) {
+                self.allow_list.push(ip_net);
+            }
+        }
+    }
+
+    pub fn with_allowed_ip(ip: &str) -> Self {
+        let mut allow_list = vec![];
+        if let Ok(ip_net) = IpNet::from_str(ip) {
+            allow_list.push(ip_net);
+        }
+        Self { allow_list }
+    }
+
+    /// Builds an allow list from a list of IP addresses or ranges. Invalid IP addresses or ranges are ignored.
+    pub fn with_allowed_ips(ips: Vec<&str>) -> Self {
+        let allow_list = ips
+            .iter()
+            .filter_map(|ip| IpNet::from_str(ip).ok())
+            .collect();
+        Self { allow_list }
     }
 }
 
@@ -70,6 +156,7 @@ where
 
     fn call(&self, req: ServiceRequest) -> Self::Future {
         if let Some(actual_ip) = req.connection_info().realip_remote_addr() {
+            println!("Actual IP: {}", actual_ip);
             if !self.allow_list.allows(actual_ip) {
                 return Box::pin(async move {
                     Err(actix_web::error::ErrorForbidden(
@@ -77,8 +164,54 @@ where
                     ))
                 });
             }
+        } else if let Some(peer_addr) = req.peer_addr() {
+            println!("Peer IP: {}", peer_addr.ip());
+            if !self.allow_list.allows(&peer_addr.ip().to_string()) {
+                return Box::pin(async move {
+                    Err(actix_web::error::ErrorForbidden(
+                        "Could not find IP of client in allow list",
+                    ))
+                });
+            }
+        } else {
+            println!("Could not get realip from connection_info");
         }
         let fut = self.service.call(req);
         Box::pin(fut)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use actix_service::Service;
+    use actix_web::{
+        App, HttpResponse, Responder,
+        http::StatusCode,
+        test::{TestRequest, init_service},
+        web,
+    };
+
+    use crate::allow_middleware::AllowList;
+
+    async fn index() -> impl Responder {
+        HttpResponse::Ok().body("abcd")
+    }
+
+    #[actix_web::test]
+    async fn allows_localhost() {
+        let allow_list = AllowList::with_allowed_ip("127.0.0.1");
+        let app = init_service(App::new().wrap(allow_list).route("/", web::get().to(index))).await;
+        let req = TestRequest::default().to_request();
+        let resp = app.call(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[actix_web::test]
+    async fn blocks_all_ips_with_empty_list() {
+        let allow_list = AllowList::with_allowed_ips(vec![]);
+        let app = init_service(App::new().wrap(allow_list).route("/", web::get().to(index))).await;
+        let req = TestRequest::default().to_request();
+        let resp = app.call(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
     }
 }
