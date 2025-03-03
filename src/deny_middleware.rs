@@ -11,6 +11,7 @@ use actix_web::{
     dev::{ServiceRequest, ServiceResponse},
 };
 use ipnet::IpNet;
+use tracing::trace;
 
 /// This should be loaded as the first middleware, as in, last in the sequence of wrap()
 /// Actix loads middlewares in bottom up fashion, and if the request's IP address is in the deny list, it will be denied, and there is no point in continuing to process the request.
@@ -63,11 +64,9 @@ pub struct DenyList {
 impl DenyList {
     /// Takes an IP and checks if it is in any of the denied ranges
     pub fn denies(&self, ip: &str) -> bool {
-        self.deny_list.is_empty()
-            || ip
-                .parse::<IpAddr>()
-                .map(|ip| self.deny_list.iter().any(|denied| denied.contains(&ip)))
-                .unwrap_or(true)
+        ip.parse::<IpAddr>()
+            .map(|ip| self.deny_list.iter().any(|denied| denied.contains(&ip)))
+            .unwrap_or(true)
     }
     /// Adds an IP address or range to the disallow list. Invalid IP addresses or ranges are ignored. If you want to add a single ip address, use `A.B.C.D/32`
     pub fn add_ip_range(&mut self, range: &str) {
@@ -101,6 +100,20 @@ impl DenyList {
             .filter_map(|ip| IpNet::from_str(ip).ok())
             .collect();
         Self { deny_list }
+    }
+
+    /// Builds a deny list from a single IpNet
+    pub fn with_denied_ipnet(net: IpNet) -> Self {
+        Self {
+            deny_list: vec![net],
+        }
+    }
+
+    /// Builds a deny list from a vec of IpNets
+    pub fn with_denied_ipnets(nets: &[IpNet]) -> Self {
+        Self {
+            deny_list: nets.to_vec(),
+        }
     }
 }
 
@@ -146,6 +159,7 @@ where
     fn call(&self, req: ServiceRequest) -> Self::Future {
         if let Some(actual_ip) = req.connection_info().realip_remote_addr() {
             if self.deny_list.denies(actual_ip) {
+                trace!("Ip [{actual_ip}] was found in deny list. Blocking");
                 return Box::pin(async move {
                     Err(actix_web::error::ErrorForbidden(
                         "IP address was found in the disallow list",
@@ -154,21 +168,15 @@ where
             }
         } else if let Some(peer_ip) = req.peer_addr() {
             if self.deny_list.denies(&peer_ip.ip().to_string()) {
+                trace!("Ip [{}] was found in deny list. Blocking", peer_ip.ip());
                 return Box::pin(async move {
                     Err(actix_web::error::ErrorForbidden(
                         "IP address was found in the disallow list",
                     ))
                 });
             }
-        } else {
-            return Box::pin(async move {
-                Err(actix_web::error::ErrorForbidden(
-                    "You have activated the deny list middleware, but no IP could be found in connection_info or peer_addr",
-                ))
-            });
         }
-        let fut = self.service.call(req);
-        Box::pin(fut)
+        Box::pin(self.service.call(req))
     }
 }
 
@@ -218,16 +226,16 @@ mod tests {
     }
 
     #[actix_web::test]
-    async fn errors_if_no_ip_can_be_found_from_the_request() {
+    async fn if_no_ip_can_be_found_from_the_request_there_is_nothing_to_deny() {
         let deny_list = DenyList::with_denied_ranges(vec!["127.0.0.1/32", "::1"]);
         let app = init_service(App::new().wrap(deny_list).route("/", web::get().to(index))).await;
         let req = TestRequest::default().uri("/").to_request();
         let resp = app.call(req).await;
-        assert!(resp.is_err());
+        assert!(resp.is_ok());
     }
 
     #[actix_web::test]
-    async fn blocks_all_ips_with_empty_list() {
+    async fn allows_all_ips_with_empty_list() {
         let local = std::net::SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 80);
         let deny_list = DenyList::with_denied_ranges(vec![]);
         let app = init_service(App::new().wrap(deny_list).route("/", web::get().to(index))).await;
@@ -236,7 +244,7 @@ mod tests {
             .peer_addr(local)
             .to_request();
         let resp = app.call(req).await;
-        assert!(resp.is_err());
+        assert!(resp.is_ok());
     }
 
     #[actix_web::test]

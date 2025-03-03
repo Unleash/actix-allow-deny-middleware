@@ -11,6 +11,7 @@ description = "Middlewares for denying or allowing IPv4 and IPv6 ranges"
 actix-service = { version = "2.0.2" }
 actix-web = { version = "4.9.0", default-features = false }
 ipnet = { version = "2.11.0" }
+tracing = "0.1.41"
 
 [dev-dependencies]
 actix-web = { version = "4.9.0", default-features = false, features = ["macros"] }

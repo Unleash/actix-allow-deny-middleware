@@ -15,6 +15,7 @@ use actix_web::{
     dev::{ServiceRequest, ServiceResponse},
 };
 use ipnet::IpNet;
+use tracing::trace;
 
 /// This should be loaded as the first middleware, as in, last in the sequence of wrap()
 /// Actix loads middlewares in bottom up fashion, and if the request's IP address is not in the allow list, it will be denied, and there is no point in continuing to process the request.
@@ -118,6 +119,19 @@ impl AllowList {
             .collect();
         Self { allow_list }
     }
+
+    /// Builds an allow list from one valid IpNet
+    pub fn with_allowed_ipnet(net: IpNet) -> Self {
+        Self {
+            allow_list: vec![net],
+        }
+    }
+    /// Builds an allow list from multiple IpNets
+    pub fn with_allowed_ipnets(nets: &[IpNet]) -> Self {
+        Self {
+            allow_list: nets.to_vec(),
+        }
+    }
 }
 
 pub struct AllowListMiddleware<S> {
@@ -162,6 +176,7 @@ where
     fn call(&self, req: ServiceRequest) -> Self::Future {
         if let Some(actual_ip) = req.connection_info().realip_remote_addr() {
             if !self.allow_list.allows(&actual_ip) {
+                trace!("Ip: {} was not in allow list. Denying", actual_ip);
                 return Box::pin(async move {
                     Err(actix_web::error::ErrorForbidden(
                         "Could not find IP of client in allow list",
@@ -169,8 +184,8 @@ where
                 });
             }
         } else if let Some(peer_addr) = req.peer_addr() {
-            println!("Peer IP: {}", peer_addr.ip());
             if !self.allow_list.allows(&peer_addr.ip().to_string()) {
+                trace!("Ip: {} was not in allow list. Denying", peer_addr.ip());
                 return Box::pin(async move {
                     Err(actix_web::error::ErrorForbidden(
                         "Could not find IP of client in allow list",
