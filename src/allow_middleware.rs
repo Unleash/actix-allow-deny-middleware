@@ -235,6 +235,19 @@ mod tests {
     }
 
     #[actix_web::test]
+    async fn allows_ip_with_another_port() {
+        let example_ip = std::net::SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 50, 50, 50)), 62957);
+        let allow_list = AllowList::default();
+        let app = init_service(App::new().wrap(allow_list).route("/", web::get().to(index))).await;
+        let req = TestRequest::default()
+            .uri("/")
+            .peer_addr(example_ip)
+            .to_request();
+        let resp = app.call(req).await;
+        assert!(resp.is_ok());
+    }
+
+    #[actix_web::test]
     async fn errors_if_no_ip_can_be_found_from_the_request() {
         let allow_list = AllowList::with_allowed_ips(vec!["127.0.0.1/32", "::1"]);
         let app = init_service(App::new().wrap(allow_list).route("/", web::get().to(index))).await;
