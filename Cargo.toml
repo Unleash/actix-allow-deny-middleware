@@ -1,6 +1,6 @@
 [package]
 name = "actix-allow-deny-middleware"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 repository = "https://github.com/chriswk/actix-allow-deny-middleware"
 homepage = "https://github.com/chriswk/actix-allow-deny-middleware"
